@@ -5610,9 +5610,17 @@ func (mset *stream) ackMsg(o *consumer, seq uint64) {
 	}
 
 	// If we are here we should attempt to remove.
-	if _, err := mset.store.RemoveMsg(seq); err == ErrStoreEOF {
-		// This should not happen, but being pedantic.
-		mset.registerPreAckLock(o, seq)
+	clustered := o.node != nil
+	if !clustered {
+		if _, err := mset.store.RemoveMsg(seq); err == ErrStoreEOF {
+			// This should not happen, but being pedantic.
+			mset.registerPreAckLock(o, seq)
+		}
+	} else if o.IsLeader() {
+		if n := o.mset.raftNode(); n != nil {
+			md := &streamMsgDelete{Stream: mset.name(), Seq: seq}
+			n.ForwardProposal(encodeMsgDelete(md))
+		}
 	}
 }
 
